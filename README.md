@@ -19,6 +19,15 @@ docker run --rm \
   subsing:latest
 ```
 
+```bash
+docker build -t subsing:latest .
+docker run --rm \
+  --volume ./input/config.json.template:/workdir/config.json \
+  --volume ./output:/processed \
+  ghcr.io/sorubedo/subsing:latest
+```
+
+
 程序只处理输入目录当前层的 `.json`、`.jsonc` 普通文件，并按文件名顺序逐个转换、直接覆盖输出目录中的同名文件。输出目录不存在时会自动创建；已有目录不会被删除或重建，其中没有对应输入的其他文件会原样保留。如果处理中途失败，此前成功写入的文件也会保留。输入和输出可以指向同一目录，以便直接修改原配置。
 
 ## 扩展配置
