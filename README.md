@@ -20,7 +20,6 @@ docker run --rm \
 ```
 
 ```bash
-docker build -t subsing:latest .
 docker run --rm \
   --volume ./input/config.json.template:/workdir/config.json \
   --volume ./output:/processed \
