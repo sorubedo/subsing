@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	stdjson "encoding/json"
 	"errors"
@@ -27,8 +28,7 @@ const (
 )
 
 type Result struct {
-	Files   int
-	Skipped bool
+	Files int
 }
 
 type remoteProvider struct {
@@ -69,13 +69,6 @@ func Run(ctx context.Context, inputDir, outputDir string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	nonEmpty, err := directoryNonEmpty(output)
-	if err != nil {
-		return Result{}, err
-	}
-	if nonEmpty {
-		return Result{Skipped: true}, nil
-	}
 
 	entries, err := os.ReadDir(input)
 	if err != nil {
@@ -94,9 +87,11 @@ func Run(ctx context.Context, inputDir, outputDir string) (Result, error) {
 	if len(names) == 0 {
 		return Result{}, errors.New("input directory contains no .json or .jsonc files")
 	}
+	if err = os.MkdirAll(output, 0o755); err != nil {
+		return Result{}, fmt.Errorf("create output directory: %w", err)
+	}
 
 	converter := NewConverter()
-	converted := make(map[string][]byte, len(names))
 	for _, name := range names {
 		content, readErr := os.ReadFile(filepath.Join(input, name))
 		if readErr != nil {
@@ -106,14 +101,9 @@ func Run(ctx context.Context, inputDir, outputDir string) (Result, error) {
 		if convertErr != nil {
 			return Result{}, fmt.Errorf("%s: %w", name, convertErr)
 		}
-		converted[name] = outputContent
-	}
-	skipped, err := publish(output, names, converted)
-	if err != nil {
-		return Result{}, err
-	}
-	if skipped {
-		return Result{Skipped: true}, nil
+		if writeErr := os.WriteFile(filepath.Join(output, name), outputContent, 0o644); writeErr != nil {
+			return Result{}, fmt.Errorf("%s: write: %w", name, writeErr)
+		}
 	}
 	return Result{Files: len(names)}, nil
 }
@@ -138,125 +128,7 @@ func validateDirectories(inputDir, outputDir string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("resolve output directory: %w", err)
 	}
-	output, err = resolvePotentialPath(output)
-	if err != nil {
-		return "", "", fmt.Errorf("resolve output directory: %w", err)
-	}
-	if pathsOverlap(input, output) {
-		return "", "", errors.New("input and output directories must not overlap")
-	}
 	return input, output, nil
-}
-
-func resolvePotentialPath(path string) (string, error) {
-	current := filepath.Clean(path)
-	var suffix []string
-	for {
-		_, err := os.Lstat(current)
-		if err == nil {
-			resolved, resolveErr := filepath.EvalSymlinks(current)
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			for index := len(suffix) - 1; index >= 0; index-- {
-				resolved = filepath.Join(resolved, suffix[index])
-			}
-			return resolved, nil
-		}
-		if !os.IsNotExist(err) {
-			return "", err
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", err
-		}
-		suffix = append(suffix, filepath.Base(current))
-		current = parent
-	}
-}
-
-func pathsOverlap(a, b string) bool {
-	relAB, errAB := filepath.Rel(a, b)
-	relBA, errBA := filepath.Rel(b, a)
-	inside := func(rel string, err error) bool {
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-	}
-	return inside(relAB, errAB) || inside(relBA, errBA)
-}
-
-func directoryNonEmpty(path string) (bool, error) {
-	dir, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("open output directory: %w", err)
-	}
-	defer dir.Close()
-	info, err := dir.Stat()
-	if err != nil {
-		return false, fmt.Errorf("stat output directory: %w", err)
-	}
-	if !info.IsDir() {
-		return false, errors.New("output path is not a directory")
-	}
-	_, err = dir.Readdirnames(1)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, io.EOF) {
-		return false, nil
-	}
-	return false, fmt.Errorf("read output directory: %w", err)
-}
-
-func publish(output string, names []string, files map[string][]byte) (bool, error) {
-	parent := filepath.Dir(output)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return false, fmt.Errorf("create output parent: %w", err)
-	}
-	stage, err := os.MkdirTemp(parent, ".subsing-stage-")
-	if err != nil {
-		return false, fmt.Errorf("create staging directory: %w", err)
-	}
-	defer os.RemoveAll(stage)
-	for _, name := range names {
-		if err = os.WriteFile(filepath.Join(stage, name), files[name], 0o644); err != nil {
-			return false, fmt.Errorf("stage %s: %w", name, err)
-		}
-	}
-	if info, statErr := os.Stat(output); statErr == nil {
-		if !info.IsDir() {
-			return false, errors.New("output path is not a directory")
-		}
-		entries, readErr := os.ReadDir(output)
-		if readErr != nil {
-			return false, fmt.Errorf("read output directory: %w", readErr)
-		}
-		if len(entries) != 0 {
-			return true, nil
-		}
-		if err = os.Remove(output); err != nil {
-			// A bind-mounted output directory cannot be removed. Write the
-			// staged files into it instead, so container mounts work as expected.
-			for _, name := range names {
-				content, readErr := os.ReadFile(filepath.Join(stage, name))
-				if readErr != nil {
-					return false, fmt.Errorf("read staged %s: %w", name, readErr)
-				}
-				if writeErr := os.WriteFile(filepath.Join(output, name), content, 0o644); writeErr != nil {
-					return false, fmt.Errorf("publish %s: %w", name, writeErr)
-				}
-			}
-			return false, nil
-		}
-	} else if !os.IsNotExist(statErr) {
-		return false, fmt.Errorf("stat output directory: %w", statErr)
-	}
-	if err = os.Rename(stage, output); err != nil {
-		return false, fmt.Errorf("publish output directory: %w", err)
-	}
-	return false, nil
 }
 
 func (c *Converter) Convert(ctx context.Context, input []byte) ([]byte, error) {
@@ -285,18 +157,12 @@ func (c *Converter) Convert(ctx context.Context, input []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode output: %w", err)
 	}
-	var pretty strings.Builder
-	encoder := stdjson.NewEncoder(&pretty)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	var generic any
-	if err = stdjson.Unmarshal(compact, &generic); err != nil {
-		return nil, fmt.Errorf("prepare formatted output: %w", err)
-	}
-	if err = encoder.Encode(generic); err != nil {
+	var pretty bytes.Buffer
+	if err = stdjson.Indent(&pretty, compact, "", "  "); err != nil {
 		return nil, fmt.Errorf("format output: %w", err)
 	}
-	return []byte(pretty.String()), nil
+	pretty.WriteByte('\n')
+	return pretty.Bytes(), nil
 }
 
 func decodeProviders(ctx context.Context, root *badjson.JSONObject) ([]remoteProvider, error) {

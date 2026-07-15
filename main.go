@@ -16,9 +16,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, "subsing:", err)
 		os.Exit(1)
 	}
-	if result.Skipped {
-		fmt.Fprintln(os.Stdout, "output directory is non-empty; already generated, skipped")
-		return
-	}
 	fmt.Fprintf(os.Stdout, "generated %d configuration file(s)\n", result.Files)
 }
