@@ -3,8 +3,8 @@ module subsing
 go 1.24.7
 
 require (
-	github.com/sagernet/sing v0.8.12-0.20260702081104-2ded2af32d3d
-	github.com/sagernet/sing-box v1.14.0-alpha.44
+	github.com/sagernet/sing v0.8.12-0.20260717153536-4f1ed45a99a5
+	github.com/sagernet/sing-box v1.14.0-alpha.47
 	gopkg.in/yaml.v3 v3.0.1
 )
 

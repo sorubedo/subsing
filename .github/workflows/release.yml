@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: android, goarch: arm64,     suffix: android-arm64 }
+          - { goos: android, goarch: arm,       goarm: "7", suffix: android-arm }
+          - { goos: android, goarch: amd64,     suffix: android-x86_64 }
+          - { goos: android, goarch: 386,       suffix: android-x86 }
+          - { goos: linux,   goarch: amd64,     suffix: linux-amd64 }
+          - { goos: linux,   goarch: arm64,     suffix: linux-arm64 }
+          - { goos: linux,   goarch: arm,       goarm: "7", suffix: linux-arm }
+          - { goos: linux,   goarch: 386,       suffix: linux-386 }
+          - { goos: darwin,  goarch: amd64,     suffix: darwin-amd64 }
+          - { goos: darwin,  goarch: arm64,     suffix: darwin-arm64 }
+          - { goos: windows, goarch: amd64,     suffix: windows-amd64 }
+          - { goos: windows, goarch: arm64,     suffix: windows-arm64 }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm || '' }}
+          CGO_ENABLED: "0"
+        run: |
+          OUTPUT="subsing-${{ matrix.suffix }}"
+          if [ "$GOOS" = "windows" ]; then
+            OUTPUT="${OUTPUT}.exe"
+          fi
+          go build -trimpath -ldflags="-s -w -buildid=" -o "$OUTPUT" .
+
+      - name: Checksum
+        run: |
+          OUTPUT="subsing-${{ matrix.suffix }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            OUTPUT="${OUTPUT}.exe"
+          fi
+          sha256sum "$OUTPUT" > "$OUTPUT.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: subsing-${{ matrix.suffix }}
+          path: subsing-${{ matrix.suffix }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten
+        run: |
+          find dist -type f -exec mv {} . \;
+          find dist -type d -empty -delete
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: subsing-*
+          generate_release_notes: true
