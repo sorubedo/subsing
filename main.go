@@ -7,11 +7,17 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: subsing <input-directory> <output-directory>")
+	skipExisting := false
+	args := os.Args[1:]
+	for len(args) > 0 && (args[0] == "--skip-existing") {
+		skipExisting = true
+		args = args[1:]
+	}
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: subsing [--skip-existing] <input-directory> <output-directory>")
 		os.Exit(2)
 	}
-	result, err := Run(context.Background(), os.Args[1], os.Args[2])
+	result, err := Run(context.Background(), args[0], args[1], skipExisting)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "subsing:", err)
 		os.Exit(1)

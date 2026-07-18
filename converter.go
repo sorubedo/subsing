@@ -64,7 +64,7 @@ func NewConverter() *Converter {
 	return &Converter{client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-func Run(ctx context.Context, inputDir, outputDir string) (Result, error) {
+func Run(ctx context.Context, inputDir, outputDir string, skipExisting bool) (Result, error) {
 	input, output, err := validateDirectories(inputDir, outputDir)
 	if err != nil {
 		return Result{}, err
@@ -91,8 +91,15 @@ func Run(ctx context.Context, inputDir, outputDir string) (Result, error) {
 		return Result{}, fmt.Errorf("create output directory: %w", err)
 	}
 
+	fileCount := 0
 	converter := NewConverter()
 	for _, name := range names {
+		outputPath := filepath.Join(output, name)
+		if skipExisting {
+			if _, statErr := os.Stat(outputPath); statErr == nil {
+				continue
+			}
+		}
 		content, readErr := os.ReadFile(filepath.Join(input, name))
 		if readErr != nil {
 			return Result{}, fmt.Errorf("%s: read: %w", name, readErr)
@@ -101,11 +108,12 @@ func Run(ctx context.Context, inputDir, outputDir string) (Result, error) {
 		if convertErr != nil {
 			return Result{}, fmt.Errorf("%s: %w", name, convertErr)
 		}
-		if writeErr := os.WriteFile(filepath.Join(output, name), outputContent, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(outputPath, outputContent, 0o644); writeErr != nil {
 			return Result{}, fmt.Errorf("%s: write: %w", name, writeErr)
 		}
+		fileCount++
 	}
-	return Result{Files: len(names)}, nil
+	return Result{Files: fileCount}, nil
 }
 
 func validateDirectories(inputDir, outputDir string) (string, string, error) {
