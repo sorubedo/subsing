@@ -14,18 +14,18 @@ jobs:
     strategy:
       matrix:
         include:
-          - { goos: linux,   goarch: arm64,     suffix: android-arm64 }
-          - { goos: linux,   goarch: arm,       goarm: "7", suffix: android-arm }
-          - { goos: linux,   goarch: amd64,     suffix: android-x86_64 }
-          - { goos: linux,   goarch: 386,       suffix: android-x86 }
-          - { goos: linux,   goarch: amd64,     suffix: linux-amd64 }
-          - { goos: linux,   goarch: arm64,     suffix: linux-arm64 }
-          - { goos: linux,   goarch: arm,       goarm: "7", suffix: linux-arm }
-          - { goos: linux,   goarch: 386,       suffix: linux-386 }
-          - { goos: darwin,  goarch: amd64,     suffix: darwin-amd64 }
-          - { goos: darwin,  goarch: arm64,     suffix: darwin-arm64 }
-          - { goos: windows, goarch: amd64,     suffix: windows-amd64 }
-          - { goos: windows, goarch: arm64,     suffix: windows-arm64 }
+          - { goos: android, goarch: arm64,                         suffix: android-arm64,  ndk_cc: aarch64-linux-android21-clang }
+          - { goos: android, goarch: arm,   goarm: "7",             suffix: android-arm,    ndk_cc: armv7a-linux-androideabi21-clang }
+          - { goos: android, goarch: amd64,                         suffix: android-x86_64, ndk_cc: x86_64-linux-android21-clang }
+          - { goos: android, goarch: 386,                           suffix: android-x86,    ndk_cc: i686-linux-android21-clang }
+          - { goos: linux,   goarch: amd64,                         suffix: linux-amd64 }
+          - { goos: linux,   goarch: arm64,                         suffix: linux-arm64 }
+          - { goos: linux,   goarch: arm,   goarm: "7",             suffix: linux-arm }
+          - { goos: linux,   goarch: 386,                           suffix: linux-386 }
+          - { goos: darwin,  goarch: amd64,                         suffix: darwin-amd64 }
+          - { goos: darwin,  goarch: arm64,                         suffix: darwin-arm64 }
+          - { goos: windows, goarch: amd64,                         suffix: windows-amd64 }
+          - { goos: windows, goarch: arm64,                         suffix: windows-arm64 }
 
     steps:
       - name: Checkout
@@ -36,16 +36,32 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Android NDK
+        if: matrix.ndk_cc != ''
+        run: |
+          NDK_VER="r27c"
+          NDK_DIR="$HOME/android-ndk"
+          if [ ! -d "$NDK_DIR" ]; then
+            curl -sfLo /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-${NDK_VER}-linux.zip
+            unzip -q /tmp/ndk.zip -d "$HOME"
+            mv "$HOME/android-ndk-${NDK_VER}" "$NDK_DIR"
+          fi
+          echo "TOOLCHAIN=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_ENV"
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm || '' }}
-          CGO_ENABLED: "0"
+          CGO_ENABLED: ${{ matrix.ndk_cc && '1' || '0' }}
+          CC: ${{ matrix.ndk_cc }}
         run: |
           OUTPUT="subsing-${{ matrix.suffix }}"
           if [ "$GOOS" = "windows" ]; then
             OUTPUT="${OUTPUT}.exe"
+          fi
+          if [ -n "$TOOLCHAIN" ]; then
+            export PATH="$TOOLCHAIN:$PATH"
           fi
           go build -trimpath -ldflags="-s -w -buildid=" -o "$OUTPUT" .
 
