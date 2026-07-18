@@ -131,8 +131,18 @@ func validateDirectories(inputDir, outputDir string) (string, string, error) {
 	return input, output, nil
 }
 
+var envVarPattern = regexp.MustCompile(`\$\{[a-zA-Z_][a-zA-Z0-9_]*\}`)
+
+func substituteEnv(input []byte) []byte {
+	return envVarPattern.ReplaceAllFunc(input, func(match []byte) []byte {
+		name := string(match[2 : len(match)-1])
+		return []byte(os.Getenv(name))
+	})
+}
+
 func (c *Converter) Convert(ctx context.Context, input []byte) ([]byte, error) {
 	parseCtx := ctx
+	input = substituteEnv(input)
 	var root badjson.JSONObject
 	if err := SJSON.UnmarshalContext(parseCtx, input, &root); err != nil {
 		return nil, fmt.Errorf("parse pseudo config: %w", err)
